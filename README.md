@@ -1,2 +1,5 @@
 # oscca_ciphers_Implementation
-国家密码算法的实现。
+
+本仓库仅用于存放个人对部分国家密码算法的实现。
+
+> 欢迎捉虫。
