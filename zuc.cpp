@@ -152,8 +152,8 @@ inline uint32_t NonLinearF(uint32_t *x)
 
     for (uint8_t i = 0; i < 4; i++)
         R1 |= (((uint32_t)IB1[i]) << (i << 3)),
-            R2 |= (((uint32_t)IB2[i]) << (i << 3)),
-            IB1[i] = IB2[i] = 0;
+        R2 |= (((uint32_t)IB2[i]) << (i << 3)),
+        IB1[i] = IB2[i] = 0;
     return res;
 }
 

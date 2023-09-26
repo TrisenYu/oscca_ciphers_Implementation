@@ -1,35 +1,31 @@
 """
+虽然优点在于很快，c++ 太过底层，以至于应对比特流都显得非常繁琐。所以打算使用 python 来完成 SM3 的编写。
 @ref:https://oscca.gov.cn/sca/xxgk/2010-12/17/1002389/files/302a3ada057c4a73830536d03e683110.pdf
+    case1: abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd
+    ﹂--> 0xdebe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732
+    case2: abc
+    ﹂--> 0x66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0
 """
-
-# c++ 太过底层
-# 以至于应对比特流都显得非常繁琐。
-# 虽然优点在于很快。
-# case1: abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd
-# case2: abc
 IV = 0x7380166f4914b2b9172442d7da8a0600a96f30bc163138aae38dee4db0fb0e4e
 
 
 def cyclic_LShift_32(val: int, __times: int) -> int:
     """循环左移。指定传入的 val 必须是 32 位十六进制数 """
-    # 因本身运算符的损失，不得不采用字符串移位
     _in_mem_bin = bin(val)[2:]
-    # 需要注意的是，可能长度不是 32 位，这需要补齐
     while len(_in_mem_bin) < 32:
         _in_mem_bin = '0' + _in_mem_bin
-    Left = _in_mem_bin[: __times]
-    Right = _in_mem_bin[__times:]
+
+    Left, Right = _in_mem_bin[: __times], _in_mem_bin[__times:]
     res = Right + Left
-    test = int(res, 2)
-    return test
+    return int(res, 2)
 
 
 def checkInBoolean(val) -> bool:
     return 0 <= val < 16
 
 
-def funcT(j: int) -> int:
-    return 0x79cc4519 if checkInBoolean(j) else 0x7a879d8a
+def funcT(val: int) -> int:
+    return 0x79cc4519 if checkInBoolean(val) else 0x7a879d8a
 
 
 def FFBoolean(val: int, x: int, y: int, z: int) -> int:
@@ -41,12 +37,10 @@ def GGBoolean(val: int, x: int, y: int, z: int) -> int:
 
 
 def P0(_x: int) -> int:
-    """ x 必须是 32 位数。"""
     return _x ^ cyclic_LShift_32(_x, 9) ^ cyclic_LShift_32(_x, 17)
 
 
 def P1(_x: int) -> int:
-    """ x 必须是 32 位数。"""
     return _x ^ cyclic_LShift_32(_x, 15) ^ cyclic_LShift_32(_x, 23)
 
 
@@ -64,7 +58,7 @@ def CompressFunction(_idx: int, _V: int, _B: str) -> int:
 
     for _ in range(0, 64):
         expW.append(extW[_] ^ extW[_ + 4])
-    # 首先需要将 256 比特的 _V 拆成 8 个 32 位数
+
     # 根本不需要换端序
     A, B = (_V >> 224) & 0xFFFFFFFF, (_V >> 192) & 0xFFFFFFFF
     C, D = (_V >> 160) & 0xFFFFFFFF, (_V >> 128) & 0xFFFFFFFF
@@ -94,14 +88,13 @@ def initPlaintext() -> str:
     """获取明文的二进制编码。并视情况填充。"""
     msg = input()
     _bin = ''
-    for c in msg:               # 固定为 unicode 编码。
-        print(c, ord(c))
+    for c in msg:                   # 固定为 unicode 编码。
         tmp = bin(ord(c))[2:]
-        while len(tmp) % 8 != 0:
+        while len(tmp) % 8 != 0:    # 不会自动补成 8 的倍数
             tmp = '0' + tmp
         _bin += tmp
 
-    _bin_length = len(_bin)     # 不会自动补成 8 的倍数
+    _bin_length = len(_bin)
 
     k_4_0, st = 0, 0
     while True:  # l + k_(0) = 447 + 512k, l > 0
@@ -127,18 +120,22 @@ def initPlaintext() -> str:
     return _bin
 
 
-plaintext_bin = initPlaintext()
-dataChunkB, num, Vu, l_ptr, r_limit = [], len(plaintext_bin) // 512, [IV], 1, len(plaintext_bin)
-str_tmp = ''
-
-while l_ptr < r_limit:
-    str_tmp += plaintext_bin[l_ptr - 1: l_ptr + 511]
-    l_ptr += 512
-    dataChunkB.append(str_tmp)
+def SM3Hash() -> str:
+    plaintext_bin = initPlaintext()
+    dataChunkB, num, Vu, l_ptr, r_limit = [], len(plaintext_bin) // 512, [IV], 1, len(plaintext_bin)
     str_tmp = ''
 
+    while l_ptr < r_limit:
+        str_tmp += plaintext_bin[l_ptr - 1: l_ptr + 511]
+        l_ptr += 512
+        dataChunkB.append(str_tmp)
+        str_tmp = ''
 
-for _ in range(1, num + 1):
-    Vu.append(CompressFunction(_ - 1, Vu[_ - 1], dataChunkB[_ - 1]))
+    for _ in range(1, num + 1):
+        Vu.append(CompressFunction(_ - 1, Vu[_ - 1], dataChunkB[_ - 1]))
+    return hex(Vu[num])
 
-print(hex(Vu[num]))
+
+if __name__ == "__main__":
+    tester = SM3Hash()
+    print(tester)

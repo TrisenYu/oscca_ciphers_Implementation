@@ -65,7 +65,8 @@ inline void SM4swap(uint32_t *x, uint32_t len)
 /* 线性变换 */
 inline void Transform_linear(uint32_t &val, int mode)
 {
-    val = mode ? val ^ cyclic_LShift(val, 2) ^ cyclic_LShift(val, 10) ^ cyclic_LShift(val, 18) ^ cyclic_LShift(val, 24) : val ^ cyclic_LShift(val, 13) ^ cyclic_LShift(val, 23);
+    val = mode ? val ^ cyclic_LShift(val, 2) ^ cyclic_LShift(val, 10) ^ cyclic_LShift(val, 18) ^ cyclic_LShift(val, 24) :
+				 val ^ cyclic_LShift(val, 13) ^ cyclic_LShift(val, 23);
 }
 inline void Transform_non_linear(uint32_t &val)
 {
