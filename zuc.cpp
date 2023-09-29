@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
+//< ===================================================== 常量声明区域 ===================================================== >
 const uint8_t S0[16][16] = {0x3e, 0x72, 0x5b, 0x47, 0xca, 0xe0, 0x00, 0x33, 0x04, 0xd1, 0x54, 0x98, 0x09, 0xb9, 0x6d, 0xcb,
                             0x7b, 0x1b, 0xf9, 0x32, 0xaf, 0x9d, 0x6a, 0xa5, 0xb8, 0x2d, 0xfc, 0x1d, 0x08, 0x53, 0x03, 0x90,
                             0x4d, 0x4e, 0x84, 0x99, 0xe4, 0xce, 0xd9, 0x91, 0xdd, 0xb6, 0x85, 0x48, 0x8b, 0x29, 0x6e, 0xac,
@@ -42,13 +43,34 @@ const uint16_t d_const[16] = {0x44D7, 0x26BC, 0x626B, 0x135E, 0x5789, 0x35E2, 0x
                               0x4D78, 0x2F13, 0x6BC4, 0x1AF1, 0x5E26, 0x3C4D, 0x789A, 0x47AC};
 const uint32_t mod31 = ~(1 << 31);
 const uint64_t mod32 = 1ull << 32;
+//< ===================================================== 常量声明区域结束 ===================================================== >
 
+//< ===================================================== 过程变量声明区域 ===================================================== >
 uint32_t /* 只用到 (30, 29, ... , 0)，而非 (31, 30, 29, ..., 0) */ Reg[16];
+/** 记得更换密钥
+ * MYKEY:
+ *  CASE_1: {0};
+ *  CASE_2: {0xFF, 0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF};
+ *  CASE_3: {0x3d, 0x4c, 0x4b, 0xe9, 0x6a, 0x82, 0xfd, 0xae, 0xb5, 0x8f, 0x64, 0x1d, 0xb1, 0x7b, 0x45, 0x5b};
+ *  CASE_4: {0x17, 0x3d, 0x14, 0xba, 0x50, 0x03, 0x73, 0x1d, 0x7a, 0x60, 0x04, 0x94, 0x70, 0xf0, 0x0a, 0x29},
+ **/
+uint8_t MyKey[16] = {0x17, 0x3d, 0x14, 0xba, 0x50, 0x03, 0x73, 0x1d, 0x7a, 0x60, 0x04, 0x94, 0x70, 0xf0, 0x0a, 0x29},
+        InitVec[16];
+/**
+ * MSG:
+ * 0x6cf65340, 0x735552ab, 0x0c9752fa, 0x6f9025fe, 0xbd675d9, 0x005875b2,
+ */
+uint32_t msg[] = {0x6cf65340, 0x735552ab, 0x0c9752fa, 0x6f9025fe, 0xbd675d9, 0x005875b2};
+uint32_t parameter[4];
+uint32_t *encrypt, *Z;
+//< ================================================== 过程变量声明区域结束 ================================================== >
 
+//< ================================================== 辅助函数声明区域 ================================================== >
 inline uint32_t cyclic_Lshift(uint32_t val, uint32_t _) { return (val >> (32 - _)) | (val << _); }
 inline uint32_t save_take_31bits(uint32_t val) { return 0x7FFFFFFFu & val; }
 inline uint16_t __H_16bits(uint32_t val) { return (val >> 16) & 0xFFFF; }
 inline uint16_t __L_16bits(uint32_t val) { return val & 0xFFFF; }
+
 /**
  * 取出 31 位寄存器中的高 16 位(30 位到 15 位)，也即 2 个字节。
  * 相与的数是 0x7FFF8000，
@@ -63,7 +85,24 @@ inline uint32_t PlusMod31(uint64_t a, uint64_t b)
     uint64_t c = a + b;
     return (c & 0x7FFFFFFFu) + (c >> 31);
 }
+/** O(1) 统计二进制数有多少个 1。分治基底：
+ * 0x55555555: 0101 0101 0101 0101 0101 0101 0101 0101
+ * 0x33333333: 0011 0011 0011 0011 0011 0011 0011 0011
+ * 0x0f0f0f0f: 0000 1111 0000 1111 0000 1111 0000 1111
+ * 0x0000ffff  0000 0000 0000 0000 1111 1111 1111 1111
+ * 然后根据逻辑优化就得。
 
+inline uint32_t bits_counter(uint32_t val)
+{
+
+    val = val - ((val >> 1) & 0x55555555);
+    val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
+    val = (val + (val >> 4)) & 0x0f0f0f0f;
+    val = val + (val >> 8);
+    val = val + (val >> 16);
+    return val & 0x3f;
+}
+*/
 /**
  * 模 2^32 加。
  * @param a: 32 位参数，但以 64 位表示从而确保运算正确。
@@ -89,6 +128,7 @@ uint32_t MulMod31(uint32_t a, uint32_t b)
     }
     return res;
 }
+//< ================================================== 辅助函数声明区域结束 ================================================== >
 
 /**
  * 初始化 或者使 LSFR 处于工作模式。为适配两参数与两模式下的切换，故先定义 mode。
@@ -152,21 +192,10 @@ inline uint32_t NonLinearF(uint32_t *x)
 
     for (uint8_t i = 0; i < 4; i++)
         R1 |= (((uint32_t)IB1[i]) << (i << 3)),
-        R2 |= (((uint32_t)IB2[i]) << (i << 3)),
-        IB1[i] = IB2[i] = 0;
+            R2 |= (((uint32_t)IB2[i]) << (i << 3)),
+            IB1[i] = IB2[i] = 0;
     return res;
 }
-
-/**
- * CASE_1: {0};
- * CASE_2: {0xFF, 0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0xFF};
- * CASE_3: {0x3d, 0x4c, 0x4b, 0xe9, 0x6a, 0x82, 0xfd, 0xae, 0xb5, 0x8f, 0x64, 0x1d, 0xb1, 0x7b, 0x45, 0x5b};
- **/
-// 记得更换密钥
-uint8_t MyKey[16] = {0x17, 0x3d, 0x14, 0xba, 0x50, 0x03, 0x73, 0x1d, 0x7a, 0x60, 0x04, 0x94, 0x70, 0xf0, 0x0a, 0x29},
-        InitVec[16] = {0x84, 0x31, 0x9a, 0xa8, 0xde, 0x69, 0x15, 0xca, 0x1f, 0x6b, 0xda, 0x6b, 0xfb, 0xd8, 0xc7, 0x66};
-
-uint32_t msg[] = {0x6cf65340, 0x735552ab, 0x0c9752fa, 0x6f9025fe, 0xbd675d9, 0x005875b2, 0x00000000};
 
 /**
  * 密钥载入函数。
@@ -179,8 +208,6 @@ inline void LoadRegister()
         Reg[i] = ((((uint32_t)MyKey[i]) << 23) | (((uint32_t)d_const[i]) << 8) | (InitVec[i])) & 0x7FFFFFFF;
     //                    逻辑上有 8 位                     逻辑上只有 15               这里有 8 位
 }
-
-uint32_t parameter[4];
 
 void ZUCinit()
 {
@@ -196,14 +223,14 @@ void ZUCinit()
     // puts("\n------------------------ END ZUC Initiation ------------------------");
 }
 
-uint32_t *test, *encrypt, *Z;
+//
 /**
  * 初始化过程中使用 parameter 数组来承接比特重组后的数值。
  * @param Len: 工作模式下才使用的、表示待加密明文的以比特位显示时的长度。
  * @param arr: 加密或解密时传入的明文或密文数组。
  * @param ans: 承接结果数组。
  */
-void ZUCWorkMode(uint32_t Len, uint32_t *arr, uint32_t *ans)
+void ZUCWorkMode(uint32_t Len, uint32_t *arr, uint32_t *store, uint32_t *ans)
 {
     BitsReconstruction(parameter);
     NonLinearF(parameter);
@@ -212,19 +239,20 @@ void ZUCWorkMode(uint32_t Len, uint32_t *arr, uint32_t *ans)
     for (uint64_t i = 0; i < Len; i++)
     {
         BitsReconstruction(parameter);
-        Z[i] = NonLinearF(parameter) ^ parameter[3];
-        ans[i] = Z[i] ^ arr[i];
-        printf("0x%X ", ans[i]); // 按要求输出
+        store[i] = NonLinearF(parameter) ^ parameter[3];
+        ans[i] = store[i] ^ arr[i];
+        printf("0x%X ", ans[i]);
+        // 按要求输出计算得到的密钥。
         opInLSFR(1);
     }
     // puts("\n------------------------ END ZUC WorkMode ------------------------");
 }
-/**
+/** 保密性算法初始化。
  * @param counter: 32 位计数器
  * @param bearer: 5 位标识
  * @param direction: 1 位方向
  */
-void initIV(uint32_t counter, uint8_t bearer, uint8_t direction)
+void initConfidentialityIV(uint32_t counter, uint8_t bearer, uint8_t direction)
 {
     InitVec[0] = (counter >> 24) & 0xFF, InitVec[1] = (counter >> 16) & 0xFF,
     InitVec[2] = (counter >> 8) & 0xFF, InitVec[3] = counter & 0xFF;
@@ -235,24 +263,50 @@ void initIV(uint32_t counter, uint8_t bearer, uint8_t direction)
     for (int i = 8; i < 16; i++)
         InitVec[i] = InitVec[i - 8];
 }
-// 此处只打算实现保密性算法。
+/** 完整性算法初始化。
+ * @param counter: 32 位计数器
+ * @param bearer: 5 位标识
+ * @param direction: 1 位方向
+ */
+/*
+void initIntegrityIV(uint32_t counter, uint8_t bearer, uint8_t direction)
+{
+    InitVec[0] = (counter >> 24) & 0xFF, InitVec[1] = (counter >> 16) & 0xFF,
+    InitVec[2] = (counter >> 8) & 0xFF, InitVec[3] = counter & 0xFF;
+
+    InitVec[4] = ((bearer & 0x1F) << 3) | 0x0;
+    InitVec[5] = InitVec[6] = InitVec[7] = 0;
+
+    for (int i = 8; i < 16; i++)
+        InitVec[i] = InitVec[i - 8];
+    InitVec[8] ^= direction << 7,
+        InitVec[14] ^= direction << 7;
+}
+// 标准文档表述极其不利于变现。
+// 以下函数具有相当明显的问题。
+uint32_t calcMAC(uint32_t len, uint32_t *msg, uint32_t *encrypt)
+{
+    uint32_t res = 0;
+    for (int i = 0; i < len; i++)
+    {
+        if (bits_counter(msg[i]) & 1)
+            res ^= encrypt[i];
+    }
+    return res;
+}
+*/
 int main()
 {
     // 测试样例。
-    initIV(0x66035492, 0xF, 0);
+    initConfidentialityIV(0x66035492, 0xf, 0);
 
     encrypt = (uint32_t *)calloc(0xc1 / 32 + 1, sizeof(uint32_t));
-    test = (uint32_t *)calloc(0xc1 / 32 + 1, sizeof(uint32_t));
     Z = (uint32_t *)calloc(0xc1 / 32 + 1, sizeof(uint32_t));
 
     ZUCinit();
-    ZUCWorkMode(0xc1 / 32 + 1, msg, encrypt);
+    ZUCWorkMode(0xc1 / 32 + 1, msg, Z, encrypt);
+    puts("\n------ END OF Confidentiality -----");
 
-    puts("");
-    for (uint32_t i = 0; i < 0xc1 / 32 + 1; i++)
-        printf("0x%x ", Z[i] ^ encrypt[i]);
-
-    free(test);
     free(Z);
     free(encrypt);
     return 0;
