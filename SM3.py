@@ -1,11 +1,10 @@
 """
-虽然优点在于很快，c++ 太过底层，以至于应对比特流都显得非常繁琐。所以打算使用 python 来完成 SM3 的编写。
 @ref:https://oscca.gov.cn/sca/xxgk/2010-12/17/1002389/files/302a3ada057c4a73830536d03e683110.pdf
-
-    case1: abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd
-    ﹂--> 0xdebe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732
-    case2: abc
-    ﹂--> 0x66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0
+    ┌──[case1]: `abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd`
+    └─> 0xdebe9ff92275b8a138604889c18e5a4d6fdb70e5387e5765293dcba39c0c5732
+    
+    ┌──[case2]: `abc`
+    └─> 0x66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0
 """
 IV = 0x7380166f4914b2b9172442d7da8a0600a96f30bc163138aae38dee4db0fb0e4e
 
@@ -59,27 +58,27 @@ def CompressFunction(_idx: int, _V: int, _B: str) -> int:
     for _ in range(0, 64):
         expW.append(extW[_] ^ extW[_ + 4])
 
-    # 根本不需要换端序
-    ABCDEFGH = [(_V >> (256 - i * 32)) & 0xFFFFFFFF for i in range(1, 9)]
+    # 根本不用换端序
+    Reg = [(_V >> (256 - i * 32)) & 0xFFFFFFFF for i in range(1, 9)]
     for _ in range(0, 64):
-        ss1 = cyclic_LShift_32((cyclic_LShift_32(ABCDEFGH[0], 12) + ABCDEFGH[4] +
+        ss1 = cyclic_LShift_32((cyclic_LShift_32(Reg[0], 12) + Reg[4] +
                                 cyclic_LShift_32(funcT(_), _ if _ <= 32 else _ - 32)) & 0xFFFFFFFF, 7)
-        ss2 = ss1 ^ cyclic_LShift_32(ABCDEFGH[0], 12)
+        ss2 = ss1 ^ cyclic_LShift_32(Reg[0], 12)
 
-        TT1, TT2 = (FFBoolean(_, ABCDEFGH[0], ABCDEFGH[1], ABCDEFGH[2]) + ABCDEFGH[3] + ss2 + expW[_]) & 0xFFFFFFFF, \
-                   (GGBoolean(_, ABCDEFGH[4], ABCDEFGH[5], ABCDEFGH[6]) + ABCDEFGH[7] + ss1 + extW[_]) & 0xFFFFFFFF
+        TT1, TT2 = (FFBoolean(_, Reg[0], Reg[1], Reg[2]) + Reg[3] + ss2 + expW[_]) & 0xFFFFFFFF, \
+                   (GGBoolean(_, Reg[4], Reg[5], Reg[6]) + Reg[7] + ss1 + extW[_]) & 0xFFFFFFFF
 
-        ABCDEFGH[3] = ABCDEFGH[2]
-        ABCDEFGH[2] = cyclic_LShift_32(ABCDEFGH[1], 9)
-        ABCDEFGH[1] = ABCDEFGH[0]
-        ABCDEFGH[0] = TT1
-        ABCDEFGH[7] = ABCDEFGH[6]
-        ABCDEFGH[6] = cyclic_LShift_32(ABCDEFGH[5], 19)
-        ABCDEFGH[5] = ABCDEFGH[4]
-        ABCDEFGH[4] = P0(TT2)
+        Reg[3] = Reg[2]
+        Reg[2] = cyclic_LShift_32(Reg[1], 9)
+        Reg[1] = Reg[0]
+        Reg[0] = TT1
+        Reg[7] = Reg[6]
+        Reg[6] = cyclic_LShift_32(Reg[5], 19)
+        Reg[5] = Reg[4]
+        Reg[4] = P0(TT2)
 
-    tmp = (ABCDEFGH[0] << 224) | (ABCDEFGH[1] << 192) | (ABCDEFGH[2] << 160) | (ABCDEFGH[3] << 128) | \
-          (ABCDEFGH[4] << 96) | (ABCDEFGH[5] << 64) | (ABCDEFGH[6] << 32) | ABCDEFGH[7]
+    tmp = (Reg[0] << 224) | (Reg[1] << 192) | (Reg[2] << 160) | (Reg[3] << 128) | \
+          (Reg[4] << 96) | (Reg[5] << 64) | (Reg[6] << 32) | Reg[7]
     return tmp ^ _V
 
 
@@ -90,7 +89,7 @@ def initPlaintext() -> str:
 
     for c in msg:                   # 固定为 unicode 编码。
         _ = bin(ord(c))[2:]
-        while len(_) % 8 != 0:    # 不会自动补成 8 的倍数
+        while len(_) % 8 != 0:      # 不会自动补成 8 的倍数
             _ = '0' + _
         _bin += _
 
