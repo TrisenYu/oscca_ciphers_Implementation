@@ -72,11 +72,6 @@ uint32_t /* 只用到 (30, 29, ... , 0)，而非 (31, 30, 29, ..., 0) */ Reg[16]
 
 inline uint16_t __H_16bits(uint32_t val) { return (val >> 16) & 0xFFFF; }
 inline uint16_t __L_16bits(uint32_t val) { return val & 0xFFFF; }
-inline uint16_t __H_2bytes_31(uint32_t val) { return (uint16_t)((val & 0x7FFF8000) >> 15); }
-inline uint16_t __L_2bytes_31(uint32_t val) { return val & (uint16_t)0xFFFF; }
-inline uint32_t __cyclic_Lshift(uint32_t val, uint32_t _) { return (val >> (32 - _)) | (val << _); }
-inline uint32_t __safely_take_31bits(uint32_t val) { return 0x7FFFFFFFu & val; }
-
 /**
  * 2^31 - 1 为模数的域。
  * 取出 31 位寄存器中的高 16 位(30 位到 15 位)，也即 2 个字节。
@@ -84,6 +79,10 @@ inline uint32_t __safely_take_31bits(uint32_t val) { return 0x7FFFFFFFu & val; }
  * @param val: 31 位寄存器中的值。
  * @note 0x7FFF8000: 0111 1111 1111 1111 1000 0000 0000 0000
  **/
+inline uint16_t __H_2bytes_31(uint32_t val) { return (uint16_t)((val & 0x7FFF8000) >> 15); }
+inline uint16_t __L_2bytes_31(uint32_t val) { return val & (uint16_t)0xFFFF; }
+inline uint32_t __cyclic_Lshift(uint32_t val, uint32_t _) { return (val >> (32 - _)) | (val << _); }
+inline uint32_t __safely_take_31bits(uint32_t val) { return 0x7FFFFFFFu & val; }
 inline uint32_t PlusMod31(uint64_t a, uint64_t b)
 {
     uint64_t c = a + b;
@@ -99,7 +98,6 @@ inline uint32_t PlusMod31(uint64_t a, uint64_t b)
 
 inline uint32_t bits_counter(uint32_t val)
 {
-
     val = val - ((val >> 1) & 0x55555555);
     val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
     val = (val + (val >> 4)) & 0x0f0f0f0f;
@@ -116,22 +114,16 @@ inline uint32_t bits_counter(uint32_t val)
  */
 inline uint32_t PlusMod32(uint64_t a, uint64_t b)
 {
-    // 模数上的差异引起传入参数的变化。
-    uint64_t res = (a + b) % mod32;
-    return res & 0xFFFFFFFFu; // 此处必须要截断。
+    uint64_t res = (a + b) % mod32; // 防止溢出。
+    return res & 0xFFFFFFFFu;       // 此处必须要截断。
 }
 uint32_t MulMod31(uint32_t a, uint32_t b)
 {
     uint32_t res = 0;
     if (a < b)
         std::swap(a, b);
-    while (b)
-    {
-        if (b & 1)
-            res = PlusMod31(res, a);
-        b >>= 1;
-        a = PlusMod31(a, a);
-    }
+    for (; b; b >>= 1, a = PlusMod31(a, a))
+        res = b & 1 ? PlusMod31(res, a) : res;
     return res;
 }
 
@@ -179,15 +171,15 @@ BitsReconstruction(uint32_t *x)
 inline uint32_t
 Linear_Transform1(uint32_t val)
 {
-    return val ^ __cyclic_Lshift(val, 2) ^ __cyclic_Lshift(val, 10) ^
-           __cyclic_Lshift(val, 18) ^ __cyclic_Lshift(val, 24);
+    return __cyclic_Lshift(val, 2) ^ __cyclic_Lshift(val, 10) ^
+           __cyclic_Lshift(val, 18) ^ __cyclic_Lshift(val, 24) ^ val;
 }
 // 标准中定义为 L2 的 S 盒变换。
 inline uint32_t
 Linear_Transform2(uint32_t val)
 {
-    return val ^ __cyclic_Lshift(val, 8) ^ __cyclic_Lshift(val, 14) ^
-           __cyclic_Lshift(val, 22) ^ __cyclic_Lshift(val, 30);
+    return __cyclic_Lshift(val, 8) ^ __cyclic_Lshift(val, 14) ^
+           __cyclic_Lshift(val, 22) ^ __cyclic_Lshift(val, 30) ^ val;
 }
 
 inline uint32_t
@@ -195,26 +187,22 @@ NonLinearF(uint32_t *x)
 {
     static uint32_t R1, R2;
     uint32_t res = PlusMod32((x[0] ^ R1), R2),
-             Wtmp1 = PlusMod32(R1, x[1]),
-             Wtmp2 = x[2] ^ R2,
+             Wtmp1 = PlusMod32(R1, x[1]), Wtmp2 = x[2] ^ R2,
              pre_r1_idx = ((uint32_t)(__L_16bits(Wtmp1)) << 16) | (__H_16bits(Wtmp2)),
              pre_r2_idx = ((uint32_t)(__L_16bits(Wtmp2)) << 16) | (__H_16bits(Wtmp1)),
              R1_idx = Linear_Transform1(pre_r1_idx),
              R2_idx = Linear_Transform2(pre_r2_idx);
 
     // 接下来将拆分下标为 4 个字节，并直接在循环中变换。
-    uint8_t IB1[4], IB2[4];
-    for (uint8_t i = 0; i < 4; i++)
-        IB1[i] = (uint8_t)((R1_idx >> (i << 3)) & 0xFF), IB2[i] = (uint8_t)((R2_idx >> (i << 3)) & 0xFF),
-        IB1[i] = (i & 1 ? S0[__H_16bits(IB1[i])][__L_16bits(IB1[i])] : S1[__H_16bits(IB1[i])][__L_16bits(IB1[i])]),
-        IB2[i] = (i & 1 ? S0[__H_16bits(IB2[i])][__L_16bits(IB2[i])] : S1[__H_16bits(IB2[i])][__L_16bits(IB2[i])]);
-
+    uint8_t tmp1, tmp2;
     R1 = 0, R2 = 0;
     for (uint8_t i = 0; i < 4; i++)
     {
-        R1 |= (((uint32_t)IB1[i]) << (i << 3));
-        R2 |= (((uint32_t)IB2[i]) << (i << 3));
-        IB1[i] = IB2[i] = 0;
+        tmp1 = (uint8_t)((R1_idx >> (i << 3)) & 0xFF), tmp2 = (uint8_t)((R2_idx >> (i << 3)) & 0xFF),
+        tmp1 = (i & 1 ? S0[__H_16bits(tmp1)][__L_16bits(tmp1)] : S1[__H_16bits(tmp1)][__L_16bits(tmp1)]),
+        tmp2 = (i & 1 ? S0[__H_16bits(tmp2)][__L_16bits(tmp2)] : S1[__H_16bits(tmp2)][__L_16bits(tmp2)]);
+        R1 |= (((uint32_t)tmp1) << (i << 3));
+        R2 |= (((uint32_t)tmp2) << (i << 3));
     }
     return res;
 }
@@ -238,7 +226,6 @@ void ZUCinit()
     {
         BitsReconstruction(parameter);
         uint32_t res = NonLinearF(parameter);
-        // 此处获得初始的值。
         opInLSFR(0, res >> 1);
     }
 }

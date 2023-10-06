@@ -1,9 +1,8 @@
 
 /** SM4 算法
- * @brief：编程实现 SM4 算法。显示加密 学号 + 姓名 的结果
- * @cite：中国国家标准化管理委员会.信息安全技术 SM4分组密码算法
- * @htmlinclude: http://c.gb688.cn/bzgk/gb/showGb?type=online&hcno=7803DE42D3BC5E80B0C3E5D8E873D56A,2016-08-29.
- * @date: 作成并通过测试于 2023 年 9 月 24 日 14 时 47 分。
+ * @brief：SM4 算法实现。
+ * @cite 中国国家标准化管理委员会.信息安全技术 SM4分组密码算法[EB/OL].http://c.gb688.cn/bzgk/gb/showGb?type=online&hcno=7803DE42D3BC5E80B0C3E5D8E873D56A,2016-08-29.
+ * @date  作成并通过测试于 2023 年 9 月 24 日 14 时 47 分。
  **/
 #include <cstdio>
 #include <cstdint>
@@ -65,8 +64,8 @@ inline void SM4swap(uint32_t *x, uint32_t len)
 /* 线性变换 */
 inline void Transform_linear(uint32_t &val, int mode)
 {
-    val = mode ? val ^ cyclic_LShift(val, 2) ^ cyclic_LShift(val, 10) ^ cyclic_LShift(val, 18) ^ cyclic_LShift(val, 24) :
-				 val ^ cyclic_LShift(val, 13) ^ cyclic_LShift(val, 23);
+    val = mode ? val ^ cyclic_LShift(val, 2) ^ cyclic_LShift(val, 10) ^ cyclic_LShift(val, 18) ^ cyclic_LShift(val, 24)
+               : val ^ cyclic_LShift(val, 13) ^ cyclic_LShift(val, 23);
 }
 inline void Transform_non_linear(uint32_t &val)
 {
