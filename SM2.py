@@ -1,8 +1,8 @@
 #! /usr/bin/python3
 # SPDX-License-Identifier: GPL-2.0
+# 第三次重构本程序。
 # :cite: https://oscca.gov.cn/sca/xxgk/2010-12/17/1002386/files/b791a9f908bb4803875ab6aeeb7b4e03.pdf
-# NOTE: 1. 不打算实现数字签名、密钥交换，只打算实现公钥的加解密。2. 不打算实现素数基张成的有限域
-# WARNING: 尚未通过验证，请不要在生产环境中使用。
+# NOTE: 1. 不打算实现素数基张成的有限域
 import random
 from typing import Optional
 import math as mt
@@ -10,39 +10,11 @@ import SM3
 
 
 class AffineDot(object):
+    """仿射点。"""
+
     def __init__(self, x: int, y: int):
         self.x = x
         self.y = y
-
-
-def Num2hex(_val: int, _len: int):
-    """ 不够目标长度的，高位补 0 """
-    tmp = hex(_val)
-    while len(tmp) < _len * 2:
-        tmp = '00' + tmp
-    return tmp
-
-
-def hex2bits(_bytes: str):
-    """4.2.4"""
-
-    def padding0inByte(string: str):
-        while len(bin_H) < 4:
-            string = '0' + string
-        return string
-
-    length = len(_bytes)
-    # 至少一定是偶数个 那么可以两个两个跳
-    p1, p2 = 0, 1
-    res = ''
-    while p2 < length:
-        _H, _L = ord(_bytes[p1]), ord(_bytes[p2])
-        bin_H, bin_L = bin(_H)[2:], bin(_L)[2:]
-        bin_H, bin_L = padding0inByte(bin_H), padding0inByte(bin_L)
-        res += bin_H + bin_L
-        p1 += 2
-        p2 += 2
-    return res
 
 
 def powMod(a: int, n: int, mod: int) -> int:
@@ -158,11 +130,57 @@ class FFCoord(object):
         return FFCoord(AffineDot(X, Y), self.belong)
 
 
-def Coord2hex(coord: FFCoord) -> str:
+def num2bytes(_val: int, _len: int) -> bytes:
+    """4.2.1 整数转字节串。"""
+    if pow(256, _len) <= _val:
+        raise ValueError('[Exceed Limit in num2bytes].')
+
+    tmp = hex(_val)[2:].rjust(_len * 2, '0')
+    res: bytes = b''
+    p1, p2 = 0, 1
+    while p1 <= len(tmp) - 1:
+        res += bytes.fromhex(str(tmp[p1]) + str(tmp[p2]))
+        p1 += 2
+        p2 += 2
+    return res
+
+
+def bytes2num(_val: bytes) -> int:
+    """4.2.2"""
+    return int.from_bytes(_val, byteorder='little')
+
+
+def bits2bytes(_val: str) -> bytes:
+    """4.2.3"""
+    k = mt.ceil(len(_val) / 8)
+    res = b''
+    p1, p2 = 0, 1
+    while p1 < k:
+        tmp = _val[p1 * 8:p2 * 8]
+        res += (((int(tmp[:4], 2) << 4) & 0xF0) + int(tmp[4:], 2)).to_bytes(byteorder='little', length=1)
+        p1 += 1
+        p2 += 1
+    while len(res) < k:
+        res = b'\x00' + res
+    return res
+
+
+def bytes2bits(_val: bytes) -> str:
+    """4.2.4"""
+    res = ''
+    for c in _val:
+        tmp = bin(c)[2:]
+        while len(tmp) < 8:
+            tmp = '0' + tmp
+        res += tmp
+    return res
+
+
+def Coord2bytes(coord: FFCoord) -> bytes:
     """4.2.8 未压缩形式。"""
-    calcX = ECCNum2hex(FFNum.setFrom1Coord(coord, True))
-    calcY = ECCNum2hex(FFNum.setFrom1Coord(coord, False))
-    PC = '04'
+    calcX = ECCNum2bytes(FFNum.setFrom1Coord(coord, True))
+    calcY = ECCNum2bytes(FFNum.setFrom1Coord(coord, False))
+    PC = b'\x04'
     return PC + calcX + calcY
 
 
@@ -172,11 +190,11 @@ def ECC_FF_Coord_Add(_P: FFCoord, _Q: FFCoord) -> FFCoord:
     实际上不同于标准中定义的加法。
     """
     if _P.coord is None and _Q.coord is None:
-        return FFCoord(None, _P.belong)     # 0 + 0
+        return FFCoord(None, _P.belong)  # 0 + 0
     elif _P.coord is None and _Q.coord is not None:
-        return _Q       # 0 + Q
+        return _Q  # 0 + Q
     elif _P.coord is not None and _Q.coord is None:
-        return _P       # P + 0
+        return _P  # P + 0
 
     y: int = (_P.coord.y - _Q.coord.y) % _P.p
     x: int = (_P.coord.x - _Q.coord.x) % _P.p
@@ -188,7 +206,7 @@ def ECC_FF_Coord_Add(_P: FFCoord, _Q: FFCoord) -> FFCoord:
     # 计算时需要翻转 y 值，而为了防止出错，先按根与系数的关系做。
     ''' xP + xQ + xR = slope^2 (mod p) '''
     xR = (slope * slope - _P.coord.x - _Q.coord.x) % _P.p
-    yR = (slope * (-xR + _P.coord.x) - _P.coord.y) % _P.p
+    yR = (slope * (_P.coord.x - xR) - _P.coord.y) % _P.p
 
     return FFCoord(AffineDot(xR, yR), _P.belong)
 
@@ -218,11 +236,21 @@ class FFNum(object):
         return cls(P.coord.y, P.belong)
 
 
-def ECCNum2hex(_val: FFNum) -> str:
-    """4.2.5"""
+def ECCNum2bytes(_val: FFNum) -> bytes:
+    """4.2.5。需求：4.2.1"""
     t = mt.ceil(mt.log(_val.belong.p, 2))
     length = mt.ceil(t / 8)
-    return Num2hex(_val.val, length)
+    return num2bytes(_val.val, length)
+
+
+def bytes2ECCNum(_ECC: ECC, _val: bytes) -> FFNum:
+    """4.2.6。需求：4.2.2"""
+    return FFNum(bytes2num(_val), _ECC)
+
+
+def ECCNum2Num(_Num: FFNum) -> int:
+    """4.2.7"""
+    return _Num.val
 
 
 # 验证与生成模块
@@ -258,79 +286,66 @@ def secretGenerator(_ECC: ECC):
     return secret, (_G, secret)
 
 
-# 转换模块实现
-def KDF(bits_str: str, res_bitsLen: int):
-    """"""
+def KDF(_bits_str: str, _target_len: int) -> str:
     def padding_0(string: str):
         while len(string) < 32:
             string = '0' + string
         return string
 
-    def binCalcHex(string: str):
-        p1, p2 = 0, 1
-        _res = b''
-        while p2*8 < len(string):
-            _res = _res + int(string[p1*8:p2*8], 2).to_bytes()
-            p1 += 1
-            p2 += 1
-        return _res
-
     cnt = 0x00000001  # 32 位
     v, Hello = 256, []
-    if res_bitsLen >= v * 0xFFFFFFFFF:
+
+    if _target_len >= v * 0xFFFFFFFFF:
         raise ValueError("[Exceed Limit].")
 
-    res = ''
-    for i in range(0, mt.ceil(res_bitsLen / v)):
-        # NOTE: 非常坑的地方之一。
-        # Hello.append(SM3.SM3Hash(True, bits_str + padding_0(bin(cnt)[2:]))[2:])
-        tmp_bin_str: str = bits_str + padding_0(bin(cnt)[2:])
-        # 直接转换的问题在于长度可能不够。
-        while len(tmp_bin_str) % 8 != 0:
-            tmp_bin_str = '0' + tmp_bin_str
-        bytes_str = binCalcHex(tmp_bin_str)
-
-        Hello.append(SM3.SM3Hash(True, bytes_str.decode('ascii', 'ignore'))[2:])
+    length = _target_len // v if _target_len % v == 0 else _target_len // v + 1
+    for i in range(length):
+        _tmp = bits2bytes(_bits_str + padding_0(bin(cnt)[2:]))
+        _show_tmp = _tmp.hex()
+        Hello.append(SM3.SM3Hash(True, _tmp.decode('iso-8859-1'))[2:])
         cnt += 1
-
-    for H in Hello[:len(Hello)]:
-        res += H
-    # fixme: 此处可能需要重修。
-    if res_bitsLen % v == 0:
-        res += Hello[-1]
-    else:
-        res += Hello[-1][:(res_bitsLen % v)]
-    return res[:res_bitsLen]
+    # fixme: hex 和 bin 不一样。下面的下标很危险。
+    Hello = [bytes2bits(bytes.fromhex(c)) for c in Hello]
+    if _target_len % v != 0:
+        Hello[-1] = Hello[-1][:_target_len - v * mt.ceil(_target_len / v)]
+    res = ''.join(Hello)
+    _show = hex(int(res, 2))[2:_target_len+2]
+    return _show
 
 
 def SM2encrypt(_bits_msg: str, _ECC: ECC, _Pub: FFCoord):
-    def testAll0(string: str) -> bool:
-        tester = int('0x' + string, 16)
-        return tester == 0
+    def testAll0(_tmp: str) -> bool:
+        return int(_tmp, 16) == 0
 
     while True:
-        # k = random.randint(1, _ECC.p - 1)
-        k = 0x4C62EEFD6ECFC2B95B92FD6C3D9575148AFA17425546D49018E5388D49DD7B4F
+        k = random.randint(1, _ECC.p - 1)
+        # NOTE: DEBUG
+        # 以下一句是测试内容。
+        # k = 0x4C62EEFD6ECFC2B95B92FD6C3D9575148AFA17425546D49018E5388D49DD7B4F
+        # NOTE: DEBUG END
         tC1 = KG(FFCoord.ECC2Coord(_ECC), k)
         if tC1.coord is None:
             continue
-        # todo:点转hex转比特串
-        C1: str = hex2bits(Coord2hex(tC1))
+        C1: bytes = Coord2bytes(tC1)
         # 原本应存在余因子来判断公钥。
         tC3 = KG(_Pub, k)
-        tmp = KDF(bin(tC3.coord.x)[2:] + bin(tC3.coord.y)[2:], len(_bits_msg))
+        Bx3, By3 = bytes2bits(ECCNum2bytes(FFNum.setFrom1Coord(tC3, True))), \
+                   bytes2bits(ECCNum2bytes(FFNum.setFrom1Coord(tC3, False)))
+        tmp = KDF(Bx3 + By3, len(_bits_msg))
         if testAll0(tmp):
             continue
         Length = max(len(_bits_msg), len(tmp))  # 转换后需要的长度补齐
         C2 = bin(int(_bits_msg, 2) ^ int(tmp, 16))[2:]
         while len(C2) < Length:
             C2 = '0' + C2
-        C3 = SM3.SM3Hash(True, bin(tC3.coord.x)[2:] + _bits_msg + bin(tC3.coord.y)[2:])[2:]
-        return C1 + C2 + C3
 
-
-def SM2decrypt(_enc_msg: str, _ECC: ECC, _Pub: FFCoord):
-    """todo."""
+        tmpCope = Bx3 + _bits_msg + By3
+        #  print(f'{hex(int(Bx3, 2))}\t{hex(int(_bits_msg, 2))}\t{hex(int(By3, 2))}')
+        C3 = SM3.SM3Hash(True, bits2bytes(tmpCope).decode('iso-8859-1'))[2:]
+        # NOTE: DEBUG
+        # print(f'\n{C1.hex()}\n{hex(int(C2, 2))[2:]}\n{C3}')
+        # NOTE: DEBUG END
+        return C1.hex()[2:] + hex(int(C2, 2))[2:] + C3
 
 
 sys_para: ECC = ECC(modP=0x8542D69E4C044F18E8B92435BF6FF7DE457283915C45517D722EDB8B08F1DFC3,
@@ -343,22 +358,7 @@ publicKey: FFCoord = FFCoord(AffineDot(0x435B39CCA8F3B508C1488AFC67BE491A0F7BA07
                                        0x75DDBA78F15FEECB4C7895E2C1CDF5FE01DEBB2CDBADF45399CCF77BBA076A42),
                              sys_para)
 
-msg = 'encryption standard'.encode('unicode').hex()
-bin_msg = bin(int(msg, 16))[2:]
-if len(bin_msg) % 2 != 0:
-    bin_msg = '0' + bin_msg
-print(msg, SM2encrypt(bin_msg, sys_para, publicKey))
-
-print(SM3.SM3Hash(True, "abc"))
-
-# 测试环节一
-testMe = b'\x00\x01\x10\xe9\x80\x86\xe7\x81\xab'
-print(testMe.decode('utf-8', 'replace'))
-print(' ', SM3.SM3Hash(True, '123456'))
-
-# 测试环节二
-elliptic_curve = ECC(modP=19, a=1, b=1, n=21, xG=10, yG=2)
-point1, point2 = FFCoord(AffineDot(10, 2), elliptic_curve), FFCoord(AffineDot(9, 6), elliptic_curve)
-point3 = ECC_FF_Coord_Add(point1, point2)
-point1_2 = point1.selfAdd()
-print(point1_2.coord.x, point1_2.coord.y, point3.coord.x, point3.coord.y)
+msg = 'encryption standard'.encode('iso-8859-1')
+bin_msg = bytes2bits(msg)
+print(len(bin_msg))
+print(f'\n{msg}\n{SM2encrypt(bin_msg, sys_para, publicKey)}')
