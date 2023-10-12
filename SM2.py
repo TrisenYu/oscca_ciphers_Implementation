@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-2.0
 # 第三次重构本程序。
 # :cite: https://oscca.gov.cn/sca/xxgk/2010-12/17/1002386/files/b791a9f908bb4803875ab6aeeb7b4e03.pdf
-# :NOTE: 1. 不打算实现素数基张成的有限域
-# todo: 为各个函数写上注释。
+# :NOTE: 不打算实现素数基张成的有限域
+# todo: 类拆分。或者不做。
 
 import random
 from typing import Optional
@@ -12,7 +12,8 @@ import SM3
 
 
 class AffineDot(object):
-    """仿射点。"""
+    """ 仿射点。传入坐标。"""
+
     def __init__(self, x: int, y: int):
         self.x = x
         self.y = y
@@ -40,7 +41,7 @@ class ECC(object):
         self.a, self.b, self.n = a, b, n
         self.p = modP
         self.xG, self.yG = xG, yG
-        # 需准备有效性判别
+        # 有效性判别
         self.discriminant = (4 * a * a * a + 27 * b * b) % modP
 
     def isValid(self):
@@ -50,6 +51,19 @@ class ECC(object):
 
 # Finite Field Coordinate
 class FFCoord(object):
+    """
+    椭圆曲线有限域上的点。
+    传入参数：
+        - 仿射点坐标。
+        - 所属的椭圆曲线。
+    内置函数：
+        - 自加。
+        - 求当前点上的导数。
+        - 判断当前点是否在椭圆曲线上。
+        - 根据基点设置为点。
+        - 设置分量（不常用）。
+    """
+
     def __init__(self, DOT: Optional[AffineDot], _ECC: ECC):
         self.coord, self.belong = DOT, _ECC
         self.p = _ECC.p
@@ -62,8 +76,8 @@ class FFCoord(object):
         _a, _b, _p = self.belong.a, self.belong.b, self.belong.p
         if self.coord is None:
             return True
-        return self.coord.y * self.coord.y % _p == (self.coord.x * self.coord.x * self.coord.x +
-                                                    _a * self.coord.x + _b) % _p
+        return self.coord.y * self.coord.y % _p == \
+            (self.coord.x * self.coord.x * self.coord.x + _a * self.coord.x + _b) % _p
 
     def setPartial(self, val: int, isX: bool) -> None:
         """能调用这个函数设置坐标分量，说明坐标一定存在。"""
@@ -90,15 +104,24 @@ class FFCoord(object):
         """
         numerator, denominator = self.derivative()
         if denominator is None:
-            # 注意，这里完成了自加，需要变
             return FFCoord(None, self.belong)  # 还是竖线一条。
 
         X = (numerator * numerator * denominator * denominator - 2 * self.coord.x) % self.p
-        Y = (numerator * denominator * (self.coord.x - X) - self.coord.y) % self.p  # 需要反转 y 才能使之映射到正确的位置。
+        # 需反转 y 才能使之映射到正确的位置。
+        Y = (numerator * denominator * (self.coord.x - X) - self.coord.y) % self.p
         return FFCoord(AffineDot(X, Y), self.belong)
 
 
 class FFNum(object):
+    """
+    椭圆曲线有限域上的元素。
+    传入参数：
+        - 元素值。
+        - 所属的椭圆曲线。
+    内置函数：
+        - 从点来设置元素值。
+    """
+
     def __init__(self, val: int, _ECC: ECC) -> None:
         self.val, self.belong = val, _ECC
 
@@ -113,7 +136,7 @@ def powMod(a: int, n: int, mod: int) -> int:
     _res = 1
     a %= mod
     while n > 0:
-        if n % 2 == 1:
+        if n & 1:
             _res = (_res * a) % mod
         a = (a * a) % mod
         n //= 2
@@ -121,6 +144,7 @@ def powMod(a: int, n: int, mod: int) -> int:
 
 
 def InvInOPFF(_x: int, mod: int):
+    """ 求逆。 """
     return powMod(_x, mod - 2, mod)
 
 
@@ -169,7 +193,7 @@ def bits2bytes(_val: str) -> bytes:
     _res = b''
     p1, p2 = 0, 1
     while p1 < k:
-        tmp = _val[p1*8:p2*8]
+        tmp = _val[p1 * 8:p2 * 8]
         _res += (((int(tmp[:4], 2) << 4) & 0xF0) + int(tmp[4:], 2)).to_bytes(byteorder='little', length=1)
         p1 += 1
         p2 += 1
@@ -189,6 +213,23 @@ def bytes2bits(_val: bytes) -> str:
     return _res
 
 
+def ECCNum2bytes(_val: FFNum) -> bytes:
+    """4.2.5。Preposition：4.2.1"""
+    t = mt.ceil(mt.log(_val.belong.p, 2))
+    length = mt.ceil(t / 8)
+    return num2bytes(_val.val, length)
+
+
+def bytes2ECCNum(_ECC: ECC, _val: bytes) -> FFNum:
+    """4.2.6。Preposition：4.2.2"""
+    return FFNum(bytes2num(_val), _ECC)
+
+
+def ECCNum2Num(_Num: FFNum) -> int:
+    """4.2.7"""
+    return _Num.val
+
+
 def Coord2bytes(coord: FFCoord) -> bytes:
     """4.2.8 未压缩形式。"""
     calcX = ECCNum2bytes(FFNum.setFrom1Coord(coord, True))
@@ -198,7 +239,7 @@ def Coord2bytes(coord: FFCoord) -> bytes:
 
 
 def bytes2Coord(_ECC: ECC, _val: bytes) -> FFCoord:
-    """ 4l + 2"""
+    """ 4.2.9"""
     if _val[0] != 4:
         raise ValueError('[Fake Message].')
     _tmp = _val.hex()
@@ -221,18 +262,17 @@ def ECC_FF_Coord_Add(_P: FFCoord, _Q: FFCoord) -> FFCoord:
     ECC有限域上两个 **不同点** 的加法。
     """
     if _P.coord is None and _Q.coord is None:
-        return FFCoord(None, _P.belong)     # 0 + 0
+        return FFCoord(None, _P.belong)  # 0 + 0
     elif _P.coord is None and _Q.coord is not None:
-        return _Q                           # 0 + Q
+        return _Q  # 0 + Q
     elif _P.coord is not None and _Q.coord is None:
-        return _P                           # P + 0
+        return _P  # P + 0
 
     y: int = (_P.coord.y - _Q.coord.y) % _P.p
     x: int = (_P.coord.x - _Q.coord.x) % _P.p
 
     if x == 0:
-        # 两个点加出了 None， 一条竖线
-        return FFCoord(None, _P.belong)
+        return FFCoord(None, _P.belong)  # 两个点加出了 None， 一条竖线
     x = InvInOPFF(x, _P.p)
     slope = (y * x) % _P.p
     ''' xP + xQ + xR = slope^2 (mod p) '''
@@ -243,10 +283,11 @@ def ECC_FF_Coord_Add(_P: FFCoord, _Q: FFCoord) -> FFCoord:
 
 
 def KG(G: FFCoord, k: int) -> FFCoord:
+    """ 有限域上求倍加点。 """
     _res: FFCoord = FFCoord(None, G.belong)
     _ECC: ECC = G.belong
     while k > 0:
-        if k % 2 == 1:
+        if k & 1:
             if _res.coord is None:
                 _res = G
             else:
@@ -254,23 +295,6 @@ def KG(G: FFCoord, k: int) -> FFCoord:
         G = G.selfAdd()
         k //= 2
     return _res
-
-
-def ECCNum2bytes(_val: FFNum) -> bytes:
-    """4.2.5。Preposition：4.2.1"""
-    t = mt.ceil(mt.log(_val.belong.p, 2))
-    length = mt.ceil(t / 8)
-    return num2bytes(_val.val, length)
-
-
-def bytes2ECCNum(_ECC: ECC, _val: bytes) -> FFNum:
-    """4.2.6。Preposition：4.2.2"""
-    return FFNum(bytes2num(_val), _ECC)
-
-
-def ECCNum2Num(_Num: FFNum) -> int:
-    """4.2.7"""
-    return _Num.val
 
 
 # 验证与生成模块
@@ -291,27 +315,31 @@ def verifyPubInECCFF(pub: Optional[FFCoord]) -> bool:
     """ 验证公钥。"""
     if pub.coord is None or not pub.isOnCur():
         return False
-    if 0 < pub.coord.x or pub.coord.x >= pub.p or \
-            0 < pub.coord.y or pub.coord.y >= pub.p:
+    if 0 > pub.coord.x or pub.coord.x >= pub.p or \
+            0 > pub.coord.y or pub.coord.y >= pub.p:
         return False
-    return KG(pub, pub.belong.n) is None
+    return KG(pub, pub.belong.n).coord is None
 
 
-def secretGenerator(_ECC: ECC) -> tuple[int, FFCoord]:
-    """ 返回密钥。 """
+def secretPublicKeyPairGenerator(_ECC: ECC) -> tuple[int, FFCoord]:
+    """ 根据所属椭圆曲线返回密钥对。 """
     _secret = random.randint(1, _ECC.p - 2)
     _G = FFCoord.ECC2Coord(_ECC)
-    return _secret, _G
+    return _secret, KG(_G, _secret)
 
 
 def padding_0_hex(string: str):
+    """ 十六进制补零。 """
     while len(string) % 2 != 0:
         string = '0' + string
     return string
 
 
 def KDF(_bits_str: str, _target_len: int) -> str:
+    """ 密钥拓展函数。 """
+
     def padding_0_32bits(string: str):
+        """ 32 位数补零。 """
         while len(string) < 32:
             string = '0' + string
         return string
@@ -337,10 +365,18 @@ def KDF(_bits_str: str, _target_len: int) -> str:
 
 
 def testAll0(_tmp: str) -> bool:
+    """ 测试十六进制数是否全零。 """
     return int(_tmp, 16) == 0
 
 
-def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord):
+def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord) -> tuple[str, int, int]:
+    """
+    SM2 明文加密函数。
+        :param: _bits_msg:  明文，填充后的比特串。
+        :param: _ECC:       所在的椭圆曲线。
+        :param: _Pub:       公钥。点形式给出。
+        :returns: 密文、C1 在填充比特串下的长度、C2 在填充比特串下的长度。
+    """
     while True:
         k = random.randint(1, _ECC.p - 1)
         # NOTE: DEBUG
@@ -348,17 +384,18 @@ def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord):
         #       k = 0x4C62EEFD6ECFC2B95B92FD6C3D9575148AFA17425546D49018E5388D49DD7B4F
         #   以下是可能会对整个程序产生影响的爆破性 k。
         #       k = 0x427c96b94c197b6edabc3308e03aac45d2cf66f5e5638110aaed5bd6b2d8ffa9
-        #       k = 0x5B691A4ECAA9A827FBAB3EBE8F2A8A7EF080090B207628C308F3C680D62AFE44
+        #           0x5B691A4ECAA9A827FBAB3EBE8F2A8A7EF080090B207628C308F3C680D62AFE44
+        #           0x1c8cd326c34d80c166f2c22728a1b19d578cb78d15885f55b327fb04c36c917b
         #   可视情况更换测试。
         # NOTE: DEBUG END
         tC1 = KG(FFCoord.ECC2Coord(_ECC), k)
         if tC1.coord is None:
             continue
         C1: bytes = Coord2bytes(tC1)
-        # 原本应存在余因子来判断公钥。
+        # !原本应有余因子判断有效性。
         tC3 = KG(_Pub, k)
         Bx3, By3 = bytes2bits(ECCNum2bytes(FFNum.setFrom1Coord(tC3, True))), \
-                   bytes2bits(ECCNum2bytes(FFNum.setFrom1Coord(tC3, False)))
+            bytes2bits(ECCNum2bytes(FFNum.setFrom1Coord(tC3, False)))
         tmp = KDF(Bx3 + By3, len(_bits_msg))
         if testAll0(tmp):
             continue
@@ -375,13 +412,24 @@ def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord):
         #   print(f'\n{C1.hex()}\n{hex(int(C2, 2))[2:]}\n{C3}')
         # NOTE: DEBUG END
         C2 = hex(int(bC2, 2))[2:]
-        while len(C2) % 2 != 0:
+        while len(C2) < Length // 4:
             C2 = '0' + C2
 
         return (C1.hex() + C2 + C3).upper(), len(bytes2bits(C1)), len(bC2)  # , k
 
 
-def SM2DecryptMsg(_secret_key: int, _secret_msg: str, _C1_len: int, _C2_len: int, _ECC: ECC, _Pub: FFCoord):
+def SM2DecryptMsg(_secret_key: int, _secret_msg: str, _C1_len: int,
+                  _C2_len: int, _ECC: ECC, _Pub: FFCoord) -> bytes:
+    """
+    SM2 密文解密函数。
+        :param: _secret_key:    密钥。
+        :param: _secret_msg:    密文，十六进制串。
+        :param: _C1_len:        C1 在填充比特串下的长度。
+        :param: _C2_len:        C2 在填充比特串下的长度。
+        :param: _ECC:           所在的椭圆曲线。
+        :param: _Pub:           公钥。点形式给出。
+        :returns: 解密后的明文。如解密失败则抛出错误。
+    """
     if _secret_msg[:2] != '04':
         raise ValueError('[Invalid Encrypt Message].')
     secret_bits = bytes2bits(hex2bytes(_secret_msg))
@@ -407,15 +455,14 @@ def SM2DecryptMsg(_secret_key: int, _secret_msg: str, _C1_len: int, _C2_len: int
     decrypt_msg = bin(int(tmp, 16) ^ int(C2, 2))[2:]
     while len(decrypt_msg) < Length:
         decrypt_msg = '0' + decrypt_msg
-    _res = bits2bytes(decrypt_msg)
     tC3 = padding_0_hex(SM3.SM3Hash(True, bits2bytes(X2 + decrypt_msg + Y2).decode('iso-8859-1'))[2:])
     C3 = bits2bytes(C3).hex()
     if tC3 != C3:
         raise ValueError('[Hash Parse Error].')
-    return _res
+    return bits2bytes(decrypt_msg)
 
 
-def ZAGenerator(_ECC: ECC, _Pub: FFCoord, _ID_bits: str):
+def ZAGenerator(_ECC: ECC, _Pub: FFCoord, _ID_bits: str) -> str:
     """
     ZA 生成函数。
         :param _ID_bits: 身份标识。比特串。
@@ -424,7 +471,9 @@ def ZAGenerator(_ECC: ECC, _Pub: FFCoord, _ID_bits: str):
         :return: SM3(_ID_Len_Bytes + _ID + _a + _b + _xG + _yG + _xP + _yP), 其中的参数按单个单个的字节转为了字符串、返回的
                 十六进制数均转为大写。
     """
+
     def padding_0_2bytes(string: str) -> bytes:
+        """ 两字节补零。"""
         while len(string) < 4:
             string = '0' + string
         return bytes.fromhex(string)
@@ -436,18 +485,26 @@ def ZAGenerator(_ECC: ECC, _Pub: FFCoord, _ID_bits: str):
     _xG, _yG = ECCNum2bytes(FFNum(_ECC.xG, _ECC)), ECCNum2bytes(FFNum(_ECC.yG, _ECC))
     _xP, _yP = ECCNum2bytes(FFNum(_Pub.coord.x, _ECC)), ECCNum2bytes(FFNum(_Pub.coord.y, _ECC))
 
-    return padding_0_hex(SM3.SM3Hash(True, (_ID_Len_Bytes + _ID + _a + _b + _xG + _yG + _xP + _yP).decode('iso-8859-1'))[2:]).upper()
+    return padding_0_hex(
+        SM3.SM3Hash(True, (_ID_Len_Bytes + _ID + _a + _b + _xG + _yG + _xP + _yP).decode('iso-8859-1'))[2:]).upper()
 
 
-def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC):
-    """ 数字签名函数。只返回签名。"""
+def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC) -> tuple[str, str]:
+    """ 
+    数字签名函数。只返回签名(r, s)。
+        :param ZA: 无 0x 标识的十六进制杂凑值
+        :param _secret_key: 密钥。
+        :param _msg: 比特串密文。
+        :param _ECC: 所属椭圆曲线。
+        :return: 两个可用于验签的签名。均为大写的十六进制。
+    """
     __msg = bits2bytes(_msg)
     _ZA = hex2bytes(ZA)
     _e = bytes2num(hex2bytes(SM3.SM3Hash(True, (_ZA + __msg).decode('iso-8859-1'))[2:])[::-1])
     while True:
         k = random.randint(1, _ECC.n - 1)
         # NOTE: DEBUG
-        # k = 0X6CB28D99385C175C94F94E934817663FC176D925DD72B727260DBAAE1FB2F96F
+        #   k = 0X6CB28D99385C175C94F94E934817663FC176D925DD72B727260DBAAE1FB2F96F
         # NOTE: DEBUG END
         P = KG(FFCoord.ECC2Coord(_ECC), k)
         X, Y = ECCNum2Num(FFNum.setFrom1Coord(P, True)), ECCNum2Num(FFNum.setFrom1Coord(P, False))
@@ -461,7 +518,16 @@ def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC):
 
 
 def SM2verifySign(_r: str, _s: str, ZA: str, _msg: str, _ECC: ECC, _Pub: FFCoord) -> bool:
-    """验签。"""
+    """
+    验签。
+        :param _Pub: 公钥。
+        :param _ECC: 所属椭圆曲线。
+        :param _msg: 密文。比特串形式。
+        :param ZA:
+        :param _s: s。十六进制数。
+        :param _r: r。十六进制数。
+        :return: 判断签名是否有效。
+    """
     r, s = int(_r, 16), int(_s, 16)
     if 0 >= r or r >= _ECC.n or 0 >= s or s >= _ECC.n:
         return False
@@ -474,71 +540,3 @@ def SM2verifySign(_r: str, _s: str, ZA: str, _msg: str, _ECC: ECC, _Pub: FFCoord
     _xP, _yP = ECCNum2Num(FFNum(P.coord.x, _ECC)), ECCNum2Num(FFNum(P.coord.y, _ECC))
     _R = (_e + _xP) % _ECC.n
     return _R == r
-
-
-# todo: SM2 密钥交换模块。有时间再去做。
-
-# ================================== 参数设置区域 ==================================
-
-sys_para: ECC = ECC(modP=0x8542D69E4C044F18E8B92435BF6FF7DE457283915C45517D722EDB8B08F1DFC3,
-                    a=0x787968B4FA32C3FD2417842E73BBFEFF2F3C848B6831D7E0EC65228B3937E498,
-                    b=0x63E4C6D3B23B0C849CF84241484BFE48F61D59A5B16BA06E6E12D1DA27C5249A,
-                    n=0x8542D69E4C044F18E8B92435BF6FF7DD297720630485628D5AE74EE7C32E79B7,
-                    xG=0x421DEBD61B62EAB6746434EBC3CC315E32220B3BADD50BDC4C4E6C147FEDD43D,
-                    yG=0x0680512BCBB42C07D47349D2153B70C4E5D7FDFCBFA36EA1A85841B9E46E09A2)
-# 加密样例所用的公钥
-"""
-publicKey: FFCoord = FFCoord(AffineDot(0x435B39CCA8F3B508C1488AFC67BE491A0F7BA07E581A0E4849A5CF70628A7E0A,
-                                       0x75DDBA78F15FEECB4C7895E2C1CDF5FE01DEBB2CDBADF45399CCF77BBA076A42),
-                             sys_para)
-# 加密函数搭配的校验调试信息。
-s = '04245C26FB68B1DDDDB12C4B6BF9F2B6D5FE60A383B0D18D1C4144AB F17F6252 E776CB92 64C2A7E8 8E52B199 03FDC473 78F605E3 ' \
-    '6811F5C07423A24B84400F01B8650053A89B41C418B0C3AA D00D886C 00286467 9C3D7360 C30156FA B7C80A02 76712DA9 D8094A63' \
-    ' 4B766D3A 285E0748 0653426D'.split(' ')
-res = ''.join(s)
-print(res)
-"""
-# 签名样例所用的公钥
-publicKey: FFCoord = FFCoord(AffineDot(0x0AE4C7798AA0F119471BEE11825BE46202BB79E2A5844495E97C04FF4DF2548A,
-                                       0x7C0240F88F1CD4E16352A73C17B7F16F07353E53A176D684A9FE0C6BB798E857),
-                             sys_para)
-# 加密样例所用的密钥
-"""
-secretKey: int = 0x1649AB77A00637BD5E2EFE283FBF353534AA7F7CB89463F208DDBC2920BB0DA0
-"""
-# 签名样例所用的密钥
-secretKey: int = 0x128B2FA8BD433C6C068C8D803DFF79792A519A55171B1B650C23661D15897263
-# 加密样例所用的明文
-# msg = '人生苦短，我用 python'.encode('utf-8')
-# 签名样例所用的密钥
-msg = 'message digest'.encode('utf-8')
-SenderID = 'ALICE123@YAHOO.COM'.encode('utf-8')
-
-# ================================== 明文加密、密文解密测试区域 ==================================
-
-for i in range(10):
-    secret, C1Len, C2Len = SM2EncryptMsg(bytes2bits(msg), sys_para, publicKey)
-    print(f'\nmsg: {msg}\n{secret}')
-    try:
-        message = SM2DecryptMsg(_secret_msg=secret, _ECC=sys_para,
-                                _Pub=publicKey, _C1_len=C1Len,
-                                _secret_key=secretKey, _C2_len=C2Len)
-        print(f'msg: {message.decode("utf-8")}')
-    except ValueError as e:
-        print(e)
-        pass
-
-# ================================== 密文签名及验签测试区域 ======================================
-
-for i in range(10):
-    ZA_id = ZAGenerator(sys_para, publicKey, bytes2bits(SenderID))
-    print(ZA_id)
-    # 生成签名
-    remain, signer = SM2DigitalSign(ZA_id, secretKey, bytes2bits(msg), sys_para)
-    print(remain, signer)
-    # 验证签名
-    flagger = SM2verifySign(remain, signer, ZA_id, bytes2bits(msg), sys_para, publicKey)
-    print(flagger)
-
-# ================================== 密钥交换测试区域 ===========================================
-# 有待完成。
