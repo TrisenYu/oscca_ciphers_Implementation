@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0
 # 第三次重构本程序。
 # :cite: https://oscca.gov.cn/sca/xxgk/2010-12/17/1002386/files/b791a9f908bb4803875ab6aeeb7b4e03.pdf
-# NOTE: 1. 不打算实现素数基张成的有限域
+# NOTE: 暂时不打算实现素数基张成的有限域
 import random
 from typing import Optional
 import math as mt
@@ -18,14 +18,14 @@ class AffineDot(object):
 
 
 def powMod(a: int, n: int, mod: int) -> int:
-    res = 1
+    _res = 1
     a %= mod
     while n > 0:
         if n % 2 == 1:
-            res = (res * a) % mod
+            _res = (_res * a) % mod
         a = (a * a) % mod
         n //= 2
-    return res
+    return _res
 
 
 def InvInOPFF(_x: int, mod: int):
@@ -136,13 +136,13 @@ def num2bytes(_val: int, _len: int) -> bytes:
         raise ValueError('[Exceed Limit in num2bytes].')
 
     tmp = hex(_val)[2:].rjust(_len * 2, '0')
-    res: bytes = b''
+    _res: bytes = b''
     p1, p2 = 0, 1
     while p1 <= len(tmp) - 1:
-        res += bytes.fromhex(str(tmp[p1]) + str(tmp[p2]))
+        _res += bytes.fromhex(str(tmp[p1]) + str(tmp[p2]))
         p1 += 2
         p2 += 2
-    return res
+    return _res
 
 
 def bytes2num(_val: bytes) -> int:
@@ -153,27 +153,27 @@ def bytes2num(_val: bytes) -> int:
 def bits2bytes(_val: str) -> bytes:
     """4.2.3"""
     k = mt.ceil(len(_val) / 8)
-    res = b''
+    _res = b''
     p1, p2 = 0, 1
     while p1 < k:
         tmp = _val[p1 * 8:p2 * 8]
-        res += (((int(tmp[:4], 2) << 4) & 0xF0) + int(tmp[4:], 2)).to_bytes(byteorder='little', length=1)
+        _res += (((int(tmp[:4], 2) << 4) & 0xF0) + int(tmp[4:], 2)).to_bytes(byteorder='little', length=1)
         p1 += 1
         p2 += 1
-    while len(res) < k:
-        res = b'\x00' + res
-    return res
+    while len(_res) < k:
+        _res = b'\x00' + _res
+    return _res
 
 
 def bytes2bits(_val: bytes) -> str:
     """4.2.4"""
-    res = ''
+    _res = ''
     for c in _val:
         tmp = bin(c)[2:]
         while len(tmp) < 8:
             tmp = '0' + tmp
-        res += tmp
-    return res
+        _res += tmp
+    return _res
 
 
 def Coord2bytes(coord: FFCoord) -> bytes:
@@ -182,6 +182,23 @@ def Coord2bytes(coord: FFCoord) -> bytes:
     calcY = ECCNum2bytes(FFNum.setFrom1Coord(coord, False))
     PC = b'\x04'
     return PC + calcX + calcY
+
+
+def bytes2Coord(_ECC: ECC, _val: bytes) -> FFCoord:
+    """ 4l + 2"""
+    if _val[0] != 4:
+        raise ValueError('[Fake msg].')
+    _tmp = _val.hex()
+    l = (len(_val) - 1) // 2
+    pre, suf = _val[1:l + 1], _val[l + 1:]
+    X = bytes2ECCNum(_ECC, pre[::-1])
+    Y = bytes2ECCNum(_ECC, suf[::-1])
+    _res: FFCoord = FFCoord(AffineDot(X.val, Y.val), _ECC)
+    return _res
+
+
+def hex2bytes(_val: str) -> bytes:
+    return bytes.fromhex(_val)
 
 
 def ECC_FF_Coord_Add(_P: FFCoord, _Q: FFCoord) -> FFCoord:
@@ -212,17 +229,17 @@ def ECC_FF_Coord_Add(_P: FFCoord, _Q: FFCoord) -> FFCoord:
 
 
 def KG(G: FFCoord, k: int) -> FFCoord:
-    res: FFCoord = FFCoord(None, G.belong)
+    _res: FFCoord = FFCoord(None, G.belong)
     _ECC: ECC = G.belong
     while k > 0:
         if k % 2 == 1:
-            if res.coord is None:
-                res = G
+            if _res.coord is None:
+                _res = G
             else:
-                res = ECC_FF_Coord_Add(res, G)
+                _res = ECC_FF_Coord_Add(_res, G)
         G = G.selfAdd()
         k //= 2
-    return res
+    return _res
 
 
 class FFNum(object):
@@ -258,9 +275,7 @@ def verifySysInECCFF(_ECC: ECC) -> bool:
     """ 不考虑扩域得到的有限域。只考虑素数域的系统参数。"""
     if _ECC.p % 2 == 0 or not _ECC.isValid():
         return False
-    if _ECC.discriminant == 0:
-        return False
-    if not MRPrimeTest(_ECC.n):
+    if _ECC.discriminant == 0 or not MRPrimeTest(_ECC.n):
         return False
     if _ECC.n <= 2 ** 191 or _ECC.n <= 4 * mt.sqrt(_ECC.p):
         return False
@@ -279,11 +294,11 @@ def verifyPubInECCFF(pub: Optional[FFCoord]) -> bool:
     return KG(pub, pub.belong.n) is None
 
 
-def secretGenerator(_ECC: ECC):
+def secretGenerator(_ECC: ECC) -> tuple[int, FFCoord]:
     """ 返回密钥。 """
-    secret = random.randint(1, _ECC.p - 2)
+    _secret = random.randint(1, _ECC.p - 2)
     _G = FFCoord.ECC2Coord(_ECC)
-    return secret, (_G, secret)
+    return _secret, _G
 
 
 def KDF(_bits_str: str, _target_len: int) -> str:
@@ -292,33 +307,39 @@ def KDF(_bits_str: str, _target_len: int) -> str:
             string = '0' + string
         return string
 
+    def padding_0_hex(string: str):
+        while len(string) % 2 != 0:
+            string = '0' + string
+        return string
+
     cnt = 0x00000001  # 32 位
     v, Hello = 256, []
 
     if _target_len >= v * 0xFFFFFFFFF:
-        raise ValueError("[Exceed Limit].")
+        raise ValueError("[Exceed Limit When KDF probing].")
 
     length = _target_len // v if _target_len % v == 0 else _target_len // v + 1
     for i in range(length):
         _tmp = bits2bytes(_bits_str + padding_0(bin(cnt)[2:]))
-        _show_tmp = _tmp.hex()
-        Hello.append(SM3.SM3Hash(True, _tmp.decode('iso-8859-1'))[2:])
+        Hello.append(padding_0_hex(SM3.SM3Hash(True, _tmp.decode('iso-8859-1'))[2:]))
         cnt += 1
-    # fixme: hex 和 bin 不一样。下面的下标很危险。
-    Hello = [bytes2bits(bytes.fromhex(c)) for c in Hello]
+
+    Hi = [bytes2bits(bytes.fromhex(c)) for c in Hello]
     if _target_len % v != 0:
-        Hello[-1] = Hello[-1][:_target_len - v * mt.ceil(_target_len / v)]
-    res = ''.join(Hello)
-    _show = hex(int(res, 2))[2:_target_len+2]
+        Hi[-1] = Hi[-1][:_target_len - v * mt.ceil(_target_len / v)]
+
+    _show = hex(int(''.join(Hi), 2))[2:_target_len + 2]
     return _show
 
 
-def SM2encrypt(_bits_msg: str, _ECC: ECC, _Pub: FFCoord):
-    def testAll0(_tmp: str) -> bool:
-        return int(_tmp, 16) == 0
+def testAll0(_tmp: str) -> bool:
+    return int(_tmp, 16) == 0
 
+
+def SM2Encrypt(_bits_msg: str, _ECC: ECC, _Pub: FFCoord):
     while True:
         k = random.randint(1, _ECC.p - 1)
+        # k = 0x5B691A4ECAA9A827FBAB3EBE8F2A8A7EF080090B207628C308F3C680D62AFE44
         # NOTE: DEBUG
         # 以下一句是测试内容。
         # k = 0x4C62EEFD6ECFC2B95B92FD6C3D9575148AFA17425546D49018E5388D49DD7B4F
@@ -345,7 +366,41 @@ def SM2encrypt(_bits_msg: str, _ECC: ECC, _Pub: FFCoord):
         # NOTE: DEBUG
         # print(f'\n{C1.hex()}\n{hex(int(C2, 2))[2:]}\n{C3}')
         # NOTE: DEBUG END
-        return C1.hex()[2:] + hex(int(C2, 2))[2:] + C3
+        return (C1.hex() + hex(int(C2, 2))[2:] + C3).upper(), len(bytes2bits(C1)), len(C2)
+
+
+def SM2Decrypt(_secret_key: int, _secret_msg: str, _C1_len: int, _C2_len: int, _ECC: ECC, _Pub: FFCoord):
+    if _secret_msg[:2] != '04':
+        raise ValueError('[Invalid encrypt message].')
+    secret_bits = bytes2bits(hex2bytes(_secret_msg))
+
+    C1 = hex(int(secret_bits[:_C1_len], 2))[2:]
+    while len(C1) % 2 != 0:
+        C1 = '0' + C1
+
+    _P = bytes2Coord(_ECC, hex2bytes(C1))
+    if not _P.isOnCur():
+        raise ValueError('[Invalid Point].')
+
+    secret_P = KG(_P, _secret_key)
+    X2 = bytes2bits(ECCNum2bytes(FFNum.setFrom1Coord(secret_P, True)))
+    Y2 = bytes2bits(ECCNum2bytes(FFNum.setFrom1Coord(secret_P, False)))
+    tmp = KDF(X2 + Y2, _C2_len)
+    if testAll0(tmp):
+        raise ValueError('[Zero Parse Error].')
+
+    C2, C3 = secret_bits[_C1_len:_C1_len + _C2_len], secret_bits[_C1_len + _C2_len:]
+    _show_C2LEN, _showC3LEN = len(C2), len(C3)
+    Length = max(len(C2), len(tmp))  # 转换后需要的长度补齐
+    decrypt_msg = bin(int(tmp, 16) ^ int(C2, 2))[2:]
+    while len(decrypt_msg) < Length:
+        decrypt_msg = '0' + decrypt_msg
+    _res = bits2bytes(decrypt_msg)
+    tC3 = SM3.SM3Hash(True, bits2bytes(X2 + decrypt_msg + Y2).decode('iso-8859-1'))[2:]
+    C3 = bits2bytes(C3).hex()
+    if tC3 != C3:
+        raise ValueError('[Hash Parse Error].')
+    return _res
 
 
 sys_para: ECC = ECC(modP=0x8542D69E4C044F18E8B92435BF6FF7DE457283915C45517D722EDB8B08F1DFC3,
@@ -354,11 +409,32 @@ sys_para: ECC = ECC(modP=0x8542D69E4C044F18E8B92435BF6FF7DE457283915C45517D722ED
                     n=0x8542D69E4C044F18E8B92435BF6FF7DD297720630485628D5AE74EE7C32E79B7,
                     xG=0x421DEBD61B62EAB6746434EBC3CC315E32220B3BADD50BDC4C4E6C147FEDD43D,
                     yG=0x0680512BCBB42C07D47349D2153B70C4E5D7FDFCBFA36EA1A85841B9E46E09A2)
+
 publicKey: FFCoord = FFCoord(AffineDot(0x435B39CCA8F3B508C1488AFC67BE491A0F7BA07E581A0E4849A5CF70628A7E0A,
                                        0x75DDBA78F15FEECB4C7895E2C1CDF5FE01DEBB2CDBADF45399CCF77BBA076A42),
                              sys_para)
+secretKey: int = 0x1649AB77A00637BD5E2EFE283FBF353534AA7F7CB89463F208DDBC2920BB0DA0
 
-msg = 'encryption standard'.encode('iso-8859-1')
-bin_msg = bytes2bits(msg)
-print(len(bin_msg))
-print(f'\n{msg}\n{SM2encrypt(bin_msg, sys_para, publicKey)}')
+msg = '测试'.encode('utf-8')
+
+# 明文加密
+secret, C1Len, C2Len = SM2Encrypt(bytes2bits(msg), sys_para, publicKey)
+print(f'\nmsg: {msg}\n{secret}')
+# 解密密文
+try:
+    message = SM2Decrypt(_secret_msg=secret, _ECC=sys_para, _Pub=publicKey, _C1_len=C1Len,
+                         _secret_key=secretKey,
+                         _C2_len=C2Len)
+    print(f'msg: {message}')
+except ValueError as e:
+    print(e)
+    pass
+
+"""
+# 搭配的校验调试信息。
+s = '04245C26FB68B1DDDDB12C4B6BF9F2B6D5FE60A383B0D18D1C4144AB F17F6252 E776CB92 64C2A7E8 8E52B199 03FDC473 78F605E3 ' \
+    '6811F5C07423A24B84400F01B8650053A89B41C418B0C3AA D00D886C 00286467 9C3D7360 C30156FA B7C80A02 76712DA9 D8094A63' \
+    ' 4B766D3A 285E0748 0653426D'.split(' ')
+res = ''.join(s)
+print(res)
+"""
