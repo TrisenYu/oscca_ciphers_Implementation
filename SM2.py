@@ -306,7 +306,7 @@ def verifySysInECCFF(_ECC: ECC) -> bool:
         return False
     if _ECC.n <= 2 ** 191 or _ECC.n <= 4 * mt.sqrt(_ECC.p):
         return False
-    if KG(FFCoord.ECC2Coord(_ECC), _ECC.n) is not None:
+    if KG(FFCoord.ECC2Coord(_ECC), _ECC.n).coord is not None:
         return False
     return _ECC.n != _ECC.p and not MOVtestFailed(_ECC.p, _ECC.n)
 
@@ -490,7 +490,7 @@ def ZAGenerator(_ECC: ECC, _Pub: FFCoord, _ID_bits: str) -> str:
 
 
 def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC) -> tuple[str, str]:
-    """ 
+    """
     数字签名函数。只返回签名(r, s)。
         :param ZA: 无 0x 标识的十六进制杂凑值
         :param _secret_key: 密钥。

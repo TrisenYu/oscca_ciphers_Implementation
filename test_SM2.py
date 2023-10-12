@@ -27,17 +27,16 @@ publicKey: SM2.FFCoord = SM2.FFCoord(SM2.AffineDot(0x0AE4C7798AA0F119471BEE11825
 secretKey: int = 0x1649AB77A00637BD5E2EFE283FBF353534AA7F7CB89463F208DDBC2920BB0DA0
 # 签名样例所用的密钥
 # secretKey: int = 0x128B2FA8BD433C6C068C8D803DFF79792A519A55171B1B650C23661D15897263
-# 签名样例所用的密钥
-# msg = 'message digest'.encode('utf-8')
 """
-
 secretKey, publicKey = SM2.secretPublicKeyPairGenerator(sys_para)
+# 加密样例所用的明文
 msg = '人生苦短，我用 python'.encode('utf-8')
+# 签名样例所用的密文
+# msg = 'message digest'.encode('utf-8')
 SenderID = 'ALICE123@YAHOO.COM'.encode('utf-8')
 
-print('\n================================= 验证公钥模块 ==============================================')
-
-print(SM2.verifyPubInECCFF(publicKey))
+# ================================= 验证公钥模块 ==============================================
+print(SM2.verifySysInECCFF(sys_para), SM2.verifyPubInECCFF(publicKey))
 
 print('\n================================== Encrypt and Decrypt  ======================================')
 for i in range(512):
@@ -45,12 +44,13 @@ for i in range(512):
     print(f'\nmsg: {msg}\n{secret}\n')
     try:
         message = SM2.SM2DecryptMsg(_secret_msg=secret, _ECC=sys_para,
-                                    _Pub=publicKey, _C1_len=C1Len,
-                                    _secret_key=secretKey, _C2_len=C2Len)
+                                _Pub=publicKey, _C1_len=C1Len,
+                                _secret_key=secretKey, _C2_len=C2Len)
         print(f'msg: {message.decode("utf-8")}')
     except ValueError as e:
         print(e)
         pass
+
 
 print('\n================================== Sign and Verify  ======================================')
 for i in range(100):
@@ -59,5 +59,5 @@ for i in range(100):
     remain, signer = SM2.SM2DigitalSign(ZA_id, secretKey, SM2.bytes2bits(msg), sys_para)
     print(remain, signer)
     # 验证签名
-    flagger = SM2.SM2verifySign(remain, signer, ZA_id, SM2.bytes2bits(msg), sys_para, publicKey)
-    print(flagger)
+    flag = SM2.SM2verifySign(remain, signer, ZA_id, SM2.bytes2bits(msg), sys_para, publicKey)
+    print(flag)
