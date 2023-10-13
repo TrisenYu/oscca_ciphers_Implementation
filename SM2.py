@@ -8,7 +8,7 @@
 import random
 from typing import Optional
 import math as mt
-import SM3
+from SM3 import SM3Hash
 
 
 class AffineDot(object):
@@ -150,7 +150,7 @@ def InvInOPFF(_x: int, mod: int):
 
 def MRPrimeTest(P: int) -> bool:
     """ 费马小定理得到的快速素性检验算法。多次枚举降低误判的可能。"""
-    for _ in range(0, 64):
+    for _ in range(0, 100):
         a = random.randint(2, P - 1)
         if powMod(a, P - 1, P) != 1:
             return False
@@ -234,8 +234,7 @@ def Coord2bytes(coord: FFCoord) -> bytes:
     """4.2.8 未压缩形式。"""
     calcX = ECCNum2bytes(FFNum.setFrom1Coord(coord, True))
     calcY = ECCNum2bytes(FFNum.setFrom1Coord(coord, False))
-    PC = b'\x04'
-    return PC + calcX + calcY
+    return b'\x04' + calcX + calcY
 
 
 def bytes2Coord(_ECC: ECC, _val: bytes) -> FFCoord:
@@ -247,8 +246,7 @@ def bytes2Coord(_ECC: ECC, _val: bytes) -> FFCoord:
     pre, suf = _val[1:l + 1], _val[l + 1:]
     X = bytes2ECCNum(_ECC, pre[::-1])
     Y = bytes2ECCNum(_ECC, suf[::-1])
-    _res: FFCoord = FFCoord(AffineDot(X.val, Y.val), _ECC)
-    return _res
+    return FFCoord(AffineDot(X.val, Y.val), _ECC)
 
 
 def hex2bytes(_val: str) -> bytes:
@@ -353,15 +351,14 @@ def KDF(_bits_str: str, _target_len: int) -> str:
     length = _target_len // v if _target_len % v == 0 else _target_len // v + 1
     for _ in range(length):
         _tmp = bits2bytes(_bits_str + padding_0_32bits(bin(cnt)[2:]))
-        Hello.append(padding_0_hex(SM3.SM3Hash(True, _tmp.decode('iso-8859-1'))[2:]))
+        Hello.append(padding_0_hex(SM3Hash(True, _tmp.decode('iso-8859-1'))[2:]))
         cnt += 1
 
     Hi = [bytes2bits(bytes.fromhex(c)) for c in Hello]
     if _target_len % v != 0:
         Hi[-1] = Hi[-1][:_target_len - v * mt.ceil(_target_len / v)]
 
-    _show = hex(int(''.join(Hi), 2))[2:_target_len + 2]
-    return _show
+    return hex(int(''.join(Hi), 2))[2:_target_len + 2]
 
 
 def testAll0(_tmp: str) -> bool:
@@ -407,7 +404,7 @@ def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord) -> tuple[str, int, i
             bC2 = '0' + bC2
 
         tmpCope = Bx3 + _bits_msg + By3
-        C3 = padding_0_hex(SM3.SM3Hash(True, bits2bytes(tmpCope).decode('iso-8859-1'))[2:])
+        C3 = padding_0_hex(SM3Hash(True, bits2bytes(tmpCope).decode('iso-8859-1'))[2:])
 
         C2 = hex(int(bC2, 2))[2:]
         while len(C2) < Length // 4:
@@ -448,12 +445,12 @@ def SM2DecryptMsg(_secret_key: int, _secret_msg: str, _C1_len: int,
         raise ValueError('[Zero Parse Error].')
 
     C2, C3 = secret_bits[_C1_len:_C1_len + _C2_len], secret_bits[_C1_len + _C2_len:]
-    _show_C2LEN, _showC3LEN = len(C2), len(C3)
+    
     Length = max(len(C2), len(tmp))  # 转换后需要的长度补齐
     decrypt_msg = bin(int(tmp, 16) ^ int(C2, 2))[2:]
     while len(decrypt_msg) < Length:
         decrypt_msg = '0' + decrypt_msg
-    tC3 = padding_0_hex(SM3.SM3Hash(True, bits2bytes(X2 + decrypt_msg + Y2).decode('iso-8859-1'))[2:])
+    tC3 = padding_0_hex(SM3Hash(True, bits2bytes(X2 + decrypt_msg + Y2).decode('iso-8859-1'))[2:])
     C3 = bits2bytes(C3).hex()
     if tC3 != C3:
         raise ValueError('[Hash Parse Error].')
@@ -484,7 +481,7 @@ def ZAGenerator(_ECC: ECC, _Pub: FFCoord, _ID_bits: str) -> str:
     _xP, _yP = ECCNum2bytes(FFNum(_Pub.coord.x, _ECC)), ECCNum2bytes(FFNum(_Pub.coord.y, _ECC))
 
     return padding_0_hex(
-        SM3.SM3Hash(True, (_ID_Len_Bytes + _ID + _a + _b + _xG + _yG + _xP + _yP).decode('iso-8859-1'))[2:]).upper()
+        SM3Hash(True, (_ID_Len_Bytes + _ID + _a + _b + _xG + _yG + _xP + _yP).decode('iso-8859-1'))[2:]).upper()
 
 
 def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC) -> tuple[str, str]:
@@ -498,7 +495,7 @@ def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC) -> tuple[str
     """
     __msg = bits2bytes(_msg)
     _ZA = hex2bytes(ZA)
-    _e = bytes2num(hex2bytes(SM3.SM3Hash(True, (_ZA + __msg).decode('iso-8859-1'))[2:])[::-1])
+    _e = bytes2num(hex2bytes(SM3Hash(True, (_ZA + __msg).decode('iso-8859-1'))[2:])[::-1])
     while True:
         k = random.randint(1, _ECC.n - 1)
         # NOTE: DEBUG
@@ -510,9 +507,9 @@ def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC) -> tuple[str
         if r == 0 or r + k == _ECC.n:
             continue
         s = (InvInOPFF(1 + _secret_key, _ECC.n) * (k - r * _secret_key)) % _ECC.n
-        if s == 0:
-            continue
-        return hex(r)[2:].upper(), hex(s)[2:].upper()
+        if s != 0:
+            break
+    return hex(r)[2:].upper(), hex(s)[2:].upper()
 
 
 def SM2verifySign(_r: str, _s: str, ZA: str, _msg: str, _ECC: ECC, _Pub: FFCoord) -> bool:
@@ -530,7 +527,7 @@ def SM2verifySign(_r: str, _s: str, ZA: str, _msg: str, _ECC: ECC, _Pub: FFCoord
     if 0 >= r or r >= _ECC.n or 0 >= s or s >= _ECC.n:
         return False
     tMsg = hex2bytes(ZA) + bits2bytes(_msg)
-    _e = int(padding_0_hex(SM3.SM3Hash(True, tMsg.decode('iso-8859-1'))), 16)
+    _e = int(padding_0_hex(SM3Hash(True, tMsg.decode('iso-8859-1'))), 16)
     _t = (r + s) % _ECC.n
     if _t == 0:
         return False
