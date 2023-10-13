@@ -19,7 +19,7 @@ class AffineDot(object):
         self.y = y
 
 
-# Elliptic Curve
+# Elliptic Curve Cryptology
 class ECC(object):
     """
     椭圆曲线系数类。可以认为是系统参数的表示形式。
@@ -214,14 +214,14 @@ def bytes2bits(_val: bytes) -> str:
 
 
 def ECCNum2bytes(_val: FFNum) -> bytes:
-    """4.2.5。Preposition：4.2.1"""
+    """4.2.5。Prerequisite：4.2.1"""
     t = mt.ceil(mt.log(_val.belong.p, 2))
     length = mt.ceil(t / 8)
     return num2bytes(_val.val, length)
 
 
 def bytes2ECCNum(_ECC: ECC, _val: bytes) -> FFNum:
-    """4.2.6。Preposition：4.2.2"""
+    """4.2.6。Prerequisite：4.2.2"""
     return FFNum(bytes2num(_val), _ECC)
 
 
@@ -386,7 +386,8 @@ def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord) -> tuple[str, int, i
         #       k = 0x427c96b94c197b6edabc3308e03aac45d2cf66f5e5638110aaed5bd6b2d8ffa9
         #           0x5B691A4ECAA9A827FBAB3EBE8F2A8A7EF080090B207628C308F3C680D62AFE44
         #           0x1c8cd326c34d80c166f2c22728a1b19d578cb78d15885f55b327fb04c36c917b
-        #   可视情况更换测试。
+        #   但都已通过测试。
+        #   可视情况更换。
         # NOTE: DEBUG END
         tC1 = KG(FFCoord.ECC2Coord(_ECC), k)
         if tC1.coord is None:
@@ -407,10 +408,7 @@ def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord) -> tuple[str, int, i
 
         tmpCope = Bx3 + _bits_msg + By3
         C3 = padding_0_hex(SM3.SM3Hash(True, bits2bytes(tmpCope).decode('iso-8859-1'))[2:])
-        # NOTE: DEBUG
-        #   print(f'{hex(int(Bx3, 2))}\t{hex(int(_bits_msg, 2))}\t{hex(int(By3, 2))}')
-        #   print(f'\n{C1.hex()}\n{hex(int(C2, 2))[2:]}\n{C3}')
-        # NOTE: DEBUG END
+
         C2 = hex(int(bC2, 2))[2:]
         while len(C2) < Length // 4:
             C2 = '0' + C2
