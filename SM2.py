@@ -398,13 +398,12 @@ def SM2EncryptMsg(_bits_msg: str, _ECC: ECC, _Pub: FFCoord) -> tuple[str, int, i
         if testAll0(tmp):
             continue
 
-        Length = max(len(_bits_msg), len(tmp))  # 转换后需要的长度补齐
+        Length = max(len(_bits_msg), len(tmp))
         bC2 = bin(int(_bits_msg, 2) ^ int(tmp, 16))[2:]
         while len(bC2) < Length:
             bC2 = '0' + bC2
 
-        tmpCope = Bx3 + _bits_msg + By3
-        C3 = padding_0_hex(SM3Hash(True, bits2bytes(tmpCope).decode('iso-8859-1'))[2:])
+        C3 = padding_0_hex(SM3Hash(True, bits2bytes(Bx3 + _bits_msg + By3).decode('iso-8859-1'))[2:])
 
         C2 = hex(int(bC2, 2))[2:]
         while len(C2) < Length // 4:
@@ -446,7 +445,7 @@ def SM2DecryptMsg(_secret_key: int, _secret_msg: str, _C1_len: int,
 
     C2, C3 = secret_bits[_C1_len:_C1_len + _C2_len], secret_bits[_C1_len + _C2_len:]
     
-    Length = max(len(C2), len(tmp))  # 转换后需要的长度补齐
+    Length = max(len(C2), len(tmp))
     decrypt_msg = bin(int(tmp, 16) ^ int(C2, 2))[2:]
     while len(decrypt_msg) < Length:
         decrypt_msg = '0' + decrypt_msg
@@ -480,8 +479,9 @@ def ZAGenerator(_ECC: ECC, _Pub: FFCoord, _ID_bits: str) -> str:
     _xG, _yG = ECCNum2bytes(FFNum(_ECC.xG, _ECC)), ECCNum2bytes(FFNum(_ECC.yG, _ECC))
     _xP, _yP = ECCNum2bytes(FFNum(_Pub.coord.x, _ECC)), ECCNum2bytes(FFNum(_Pub.coord.y, _ECC))
 
-    return padding_0_hex(
-        SM3Hash(True, (_ID_Len_Bytes + _ID + _a + _b + _xG + _yG + _xP + _yP).decode('iso-8859-1'))[2:]).upper()
+    return padding_0_hex(SM3Hash(True, 
+                                (_ID_Len_Bytes + _ID + _a + _b + _xG + _yG + _xP + _yP)
+                                .decode('iso-8859-1'))[2:]).upper()
 
 
 def SM2DigitalSign(ZA: str, _secret_key: int, _msg: str, _ECC: ECC) -> tuple[str, str]:
